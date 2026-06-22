@@ -26,6 +26,7 @@ What is Kickstart?
 
   Kickstart.nvim is a starting point for your own configuration.
     The goal is that you can read every line of code, top-to-bottom, understand
+    
     what your configuration is doing, and modify it to suit your needs.
 
     Once you've done that, you can start exploring, configuring and tinkering to
@@ -114,8 +115,14 @@ vim.o.showmode = false
 --  Schedule the setting after `UiEnter` because it can increase startup-time.
 --  Remove this option if you want your OS clipboard to remain independent.
 --  See `:help 'clipboard'`
-vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
-
+--vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
+vim.keymap.set({'n', 'v'}, '<leader>y', '"+y', { desc = 'Yank to system clipboard' })
+vim.keymap.set({'n', 'v'}, '<leader>p', function()
+  local reg = vim.fn.getreg('+')
+  reg = reg:gsub('\r\n', '\n'):gsub('\r', '\n')
+  vim.fn.setreg('+', reg)
+  vim.cmd('normal! "+p')
+end, { desc = 'Paste from system clipboard' })
 -- Enable break indent
 vim.o.breakindent = true
 
@@ -288,7 +295,7 @@ require('lazy').setup({
       },
     },
   },
-
+  -- lazy.nvim
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
   --
   -- This is often very useful to both group configuration, as well as handle
@@ -321,6 +328,14 @@ require('lazy').setup({
         { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
         { 'gr', group = 'LSP Actions', mode = { 'n' } },
       },
+    },
+  },
+  {
+    'ray-x/lsp_signature.nvim',
+    event = 'LspAttach',
+    opts = {
+      hint_enable = false,
+      handler_opts = { border = 'rounded' },
     },
   },
 
@@ -423,7 +438,7 @@ require('lazy').setup({
         group = vim.api.nvim_create_augroup('telescope-lsp-attach', { clear = true }),
         callback = function(event)
           local buf = event.buf
-
+          vim.keymap.set('n', '<C-s>', vim.lsp.buf.signature_help, { buffer = buf, desc = 'Signature Help' })
           -- Find references for the word under your cursor.
           vim.keymap.set('n', 'grr', builtin.lsp_references, { buffer = buf, desc = '[G]oto [R]eferences' })
 
@@ -609,10 +624,14 @@ require('lazy').setup({
         --    https://github.com/pmizio/typescript-tools.nvim
         --
         -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
+        ts_ls = {},
 
         stylua = {}, -- Used to format Lua code
-
+        ocamllsp= {
+          cmd = { "ocamllsp" },
+          filetypes = { "ocaml", "menhir", "ocamlinterface", "ocamllex", "reason", "dune" },
+          root_markers = { "*.opam", "esy.json", "package.json", ".git", "dune-project", "dune-workspace" },
+        },
         -- Special Lua Config, as recommended by neovim help docs
         lua_ls = {
           on_init = function(client)
@@ -668,6 +687,7 @@ require('lazy').setup({
       end
     end,
   },
+
 
   { -- Autoformat
     'stevearc/conform.nvim',
@@ -910,7 +930,7 @@ require('lazy').setup({
         local has_indent_query = vim.treesitter.query.get(language, 'indents') ~= nil
 
         -- enables treesitter based indentation
-        if has_indent_query then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
+        if has_indent_query and language ~= 'ocaml' then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
       end
 
       local available_parsers = require('nvim-treesitter').get_available()
@@ -986,5 +1006,29 @@ require('lazy').setup({
   },
 })
 
+
+vim.api.nvim_create_user_command('LspAvailable', function()
+  local ft = vim.bo.filetype
+  local matches = {}
+  local mlsp = require('mason-lspconfig')
+
+  local orig_notify = vim.notify
+  vim.notify = function() end
+
+  for _, name in ipairs(mlsp.get_available_servers()) do
+    local ok, cfg = pcall(require, 'lspconfig.configs.' .. name)
+    if ok and cfg.default_config and vim.tbl_contains(cfg.default_config.filetypes or {}, ft) then
+      table.insert(matches, name)
+    end
+  end
+
+  vim.notify = orig_notify
+
+  if #matches == 0 then
+    print('No servers found for: ' .. ft)
+  else
+    print('Servers for ' .. ft .. ': ' .. vim.inspect(matches))
+  end
+end, {})
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
